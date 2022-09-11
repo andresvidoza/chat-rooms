@@ -1,9 +1,64 @@
-from django.db.models import Q
 from django.shortcuts import render, redirect
-from .models import Room, Topic
+from django.http import HttpResponse
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db.models import Q
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.forms import UserCreationForm
+from .models import Room, Topic, Message
 from .forms import RoomForm 
 
 # Create your views here.
+
+def loginPage(request):
+
+    page = 'login'
+
+    if request.user.is_authenticated:
+        return redirect('home')
+
+    if request.method == 'POST':
+        username = request.POST.get('username').lower()
+        password = request.POST.get('password')
+
+        try:
+            user = User.objects.get(username=username) # check if user exists
+        except:
+            #throw error if it doesnt exist
+            messages.error(request, "User does not exist")
+
+        user = authenticate(request, username=username, password=password)
+
+        if user is not None:
+            login(request, user) # this is going to add that session in the database
+            return redirect('home')
+        else:
+            messages.error(request, "Username OR password does not exist")
+
+
+    context = {'page': page}
+    return render(request, 'base/login_register.html', context)
+
+def logoutUser(request):
+    logout(request) # delete the token
+    return redirect('home')
+
+def registerPage(request):
+    form = UserCreationForm()
+
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.username = user.username.lower()
+            user.save()
+            login(request, user)
+            return redirect('home')
+        else:
+            messages.error(request, 'An error occured!')
+
+    return render(request, 'base/login_register.html', {'form': form})
 
 def home(request): 
     ## whatever we pass into the URL 
@@ -23,9 +78,20 @@ def home(request):
 
 def room (request, pk):
     room = Room.objects.get(id=pk)
-    context = {'room': room}
+    room_messages = room.message_set.all().order_by('-created')
+
+    if request.method == 'POST':
+        messsage = Message.objects.create(
+            user= request.user,
+            room=room,
+            body= request.POST.get('body')
+        )
+        return redirect('room', pk=room.id)
+
+    context = {'room': room, 'room_messages': room_messages}
     return render(request, 'base/room.html', context)
 
+@login_required(login_url = 'login')
 def createRoom(request):
     form = RoomForm() # init form with fields in the form.py from its model
 
@@ -37,10 +103,13 @@ def createRoom(request):
 
     context = {'form': form}
     return render(request, 'base/room_form.html', context)
-
+@login_required(login_url = 'login')
 def updateRoom(request, pk):
     room = Room.objects.get(id=pk) # query the room
     form = RoomForm(instance=room) # prefill the data
+
+    if request.user != room.host:
+        return HttpResponse('You are not allowed here!')
 
     if request.method == 'POST':
         form = RoomForm(request.POST, instance=room) ## tell it which room to update, so the instance ix the room with prefilled data
@@ -50,9 +119,13 @@ def updateRoom(request, pk):
 
     context = {'form': form}
     return render(request, 'base/room_form.html', context)
-
+@login_required(login_url = 'login')
 def deleteRoom(request, pk):
     room = Room.objects.get(id=pk)
+
+    if request.user != room.host:
+        return HttpResponse('You are not allowed here!')
+
     if request.method == 'POST':
         room.delete()
         return redirect('home')

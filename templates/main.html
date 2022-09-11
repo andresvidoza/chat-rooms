@@ -10,7 +10,15 @@
 <body>
 
     {% include 'navbar.html' %}
-    
+
+    {% if messages %}
+    <ul class="messages">
+        {% for message in room_messages %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
     {% block content %}
 
 
